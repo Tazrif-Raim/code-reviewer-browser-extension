@@ -11,7 +11,14 @@ export default defineConfig({
     name: "BYOK AI Code Reviewer Extension",
     version: "1.0.0",
 
-    permissions: ["cookies", "tabs", "scripting", "activeTab", "notifications"],
+    permissions: [
+      "cookies",
+      "tabs",
+      "scripting",
+      "activeTab",
+      "notifications",
+      "clipboardRead",
+    ],
     host_permissions: ["http://*/*", "https://*/*"],
 
     background: {
