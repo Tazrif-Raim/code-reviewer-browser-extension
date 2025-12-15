@@ -50,11 +50,6 @@ export const getRepoId = async (
   sender: Browser.runtime.MessageSender
 ): Promise<string | null> => {
   try {
-    console.log(
-      "Fetching repo ID for:",
-      message.payload.prOwnerName,
-      message.payload.prRepoName
-    );
     const response = await fetch(
       `https://byok-ai-code-reviewer.vercel.app/api/extension/internal-repo-id?ownerName=${message.payload.prOwnerName}&repoName=${message.payload.prRepoName}`,
       {
@@ -101,7 +96,7 @@ export const buildPrompt = async (
   message: any,
   sender: Browser.runtime.MessageSender,
   repoId: string
-): Promise<string | null> => {
+): Promise<{ prompt: string; reviewId: string } | null> => {
   try {
     const response = await fetch(
       "https://byok-ai-code-reviewer.vercel.app/api/extension/build-prompt",
@@ -129,7 +124,7 @@ export const buildPrompt = async (
     }
 
     const data = await response.json();
-    return data.prompt;
+    return data;
   } catch (error) {
     await browser.tabs.create({
       url: "https://byok-ai-code-reviewer.vercel.app/repos",
@@ -151,5 +146,186 @@ export const buildPrompt = async (
         "Please Create the Repository in the Reviewer App to enable code review functionality.",
     });
     return null;
+  }
+};
+
+export const runGeminiAutomation = async (
+  userPrompt: string,
+  sender: Browser.runtime.MessageSender
+) => {
+  const tab = await browser.tabs.create({
+    url: "https://gemini.google.com/u/7/app",
+    active: true,
+  });
+
+  await new Promise((resolve) => {
+    browser.tabs.onUpdated.addListener(function listener(tabId, info) {
+      if (tabId === tab.id && info.status === "complete") {
+        browser.tabs.onUpdated.removeListener(listener);
+        resolve(null);
+      }
+    });
+  });
+
+  const result = await browser.scripting.executeScript({
+    target: { tabId: tab.id! },
+    args: [userPrompt],
+    func: async (prompt: string) => {
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+      const waitFor = async (
+        selector: string,
+        timeout = 10000
+      ): Promise<Element> => {
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+          const el = document.querySelector(selector);
+          if (el) return el;
+          await sleep(500);
+        }
+        throw new Error(`Timeout waiting for selector: ${selector}`);
+      };
+
+      const clickByIcon = async (iconName: string): Promise<Element> => {
+        const el = await waitFor(`[data-mat-icon-name="${iconName}"]`);
+        (el.closest("button") as HTMLButtonElement)?.click();
+        return el;
+      };
+
+      await sleep(2000);
+
+      try {
+        await clickByIcon("edit_square");
+        await sleep(1000);
+      } catch {
+        // Ignore
+      }
+
+      try {
+        const menuBtn = await waitFor(
+          '[data-test-id="bard-mode-menu-button"]',
+          5000
+        );
+        (menuBtn.closest("button") as HTMLButtonElement)?.click();
+        await sleep(500);
+
+        const menuItems = Array.from(
+          document.querySelectorAll('li, div[role="menuitem"]')
+        );
+        const targetModel = menuItems.find((el) =>
+          el.textContent?.includes("Thinking")
+        );
+        if (targetModel) {
+          (targetModel as HTMLElement).click();
+        } else {
+          console.warn("Could not find 'Thinking' model, using default.");
+          document.body.click();
+        }
+        await sleep(1000);
+      } catch {
+        console.warn("Could not open model menu, using default model.");
+      }
+
+      const editor = (await waitFor('[contenteditable="true"]')) as HTMLElement;
+      editor.focus();
+      document.execCommand("insertText", false, prompt);
+      await sleep(500);
+
+      await clickByIcon("send");
+      await sleep(2000);
+
+      const pollStart = Date.now();
+      const TIMEOUT = 180000;
+      while (true) {
+        if (Date.now() - pollStart > TIMEOUT) {
+          throw new Error("Timeout waiting for response generation");
+        }
+
+        const stopIcon = document.querySelector('[data-mat-icon-name="stop"]');
+        const micIcon = document.querySelector('[data-mat-icon-name="mic"]');
+        const sendIcon = document.querySelector('[data-mat-icon-name="send"]');
+
+        if (!stopIcon && (micIcon || sendIcon)) {
+          break;
+        }
+        await sleep(1000);
+      }
+
+      await sleep(1000);
+
+      const copyButtons = document.querySelectorAll(
+        '[data-mat-icon-name="content_copy"]'
+      );
+      if (copyButtons.length === 0) {
+        throw new Error("No copy button found");
+      }
+
+      const lastCopyBtn = copyButtons[copyButtons.length - 1];
+      (lastCopyBtn.closest("button") as HTMLButtonElement)?.click();
+      await sleep(500);
+
+      try {
+        const text = await navigator.clipboard.readText();
+        return text;
+      } catch {
+        const responseContainers = document.querySelectorAll(
+          ".model-response-text, .response-content, [data-message-author-role='model']"
+        );
+        if (responseContainers.length > 0) {
+          const lastResponse =
+            responseContainers[responseContainers.length - 1];
+          return (lastResponse as HTMLElement).innerText;
+        }
+        return "Error: Could not read clipboard or scrape response from DOM";
+      }
+    },
+  });
+
+  if (tab.id) {
+    await browser.tabs.remove(tab.id);
+  }
+
+  if (sender.tab?.id) {
+    await browser.tabs.update(sender.tab.id, { active: true });
+  }
+
+  return result[0].result;
+};
+
+export const postReview = async (
+  repoId: string,
+  pullNumber: number,
+  reviewId: string,
+  reviewData: object,
+  shouldComment: boolean
+): Promise<boolean> => {
+  try {
+    const response = await fetch(
+      "https://byok-ai-code-reviewer.vercel.app/api/extension/post-review",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          repoId,
+          pullNumber,
+          reviewId,
+          reviewData,
+          shouldComment,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error("Error posting review:", error);
+    return false;
   }
 };
