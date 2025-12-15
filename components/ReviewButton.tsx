@@ -1,16 +1,18 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { EMessageTypes } from "@/lib/enums";
 
 interface ReviewButtonProps {
   prNumber: string;
-  prUrl: string;
+  prOwnerName: string;
+  prRepoName: string;
   prTitle: string;
 }
 
 export default function ReviewButton({
   prNumber,
-  prUrl,
+  prOwnerName,
+  prRepoName,
   prTitle,
 }: ReviewButtonProps) {
   const [status, setStatus] = useState<
@@ -24,10 +26,9 @@ export default function ReviewButton({
     setStatus("loading");
 
     try {
-      console.log("Sending review request for PR:", prNumber, prUrl, prTitle);
       const response = await browser.runtime.sendMessage({
         type: EMessageTypes.TRIGGER_REVIEW,
-        payload: { prNumber, prUrl, prTitle },
+        payload: { prNumber, prOwnerName, prRepoName, prTitle },
       });
     } catch (err) {
       console.error(err);

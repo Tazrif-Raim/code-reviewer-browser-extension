@@ -8,10 +8,11 @@ export default defineConfig({
 
   manifest: {
     manifest_version: 3,
-    name: "My Extension",
+    name: "BYOK AI Code Reviewer Extension",
     version: "1.0.0",
 
-    permissions: ["cookies", "tabs", "scripting", "activeTab", "runtime"],
+    permissions: ["cookies", "tabs", "scripting", "activeTab", "notifications"],
+    host_permissions: ["http://*/*", "https://*/*"],
 
     background: {
       service_worker: "background.ts",
@@ -30,7 +31,7 @@ export default defineConfig({
           "*://gemini.google.com/*",
           "https://byok-ai-code-reviewer.vercel.app/*",
         ],
-        js: ["content.ts"],
+        js: ["content-scripts/github.js"],
       },
     ],
   },

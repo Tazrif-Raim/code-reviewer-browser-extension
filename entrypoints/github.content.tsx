@@ -25,6 +25,11 @@ export default defineContentScript({
         const prUrl = linkElement?.href;
         const prTitle = linkElement?.innerText;
 
+        const urlObj = new URL(prUrl);
+        const pathParts = urlObj.pathname.split("/").filter(Boolean);
+        const prOwnerName = pathParts[0];
+        const prRepoName = pathParts[1];
+
         const appContainer = document.createElement("div");
         appContainer.className = "d-flex flex-items-center ml-2";
 
@@ -32,7 +37,12 @@ export default defineContentScript({
 
         const root = ReactDOM.createRoot(appContainer);
         root.render(
-          <ReviewButton prNumber={prNumber} prUrl={prUrl} prTitle={prTitle} />
+          <ReviewButton
+            prNumber={prNumber}
+            prOwnerName={prOwnerName}
+            prRepoName={prRepoName}
+            prTitle={prTitle}
+          />
         );
 
         row.setAttribute("data-wxt-injected", "true");
