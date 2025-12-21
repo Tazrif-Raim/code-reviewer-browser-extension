@@ -9,7 +9,7 @@ export default defineConfig({
   manifest: {
     manifest_version: 3,
     name: "BYOK AI Code Reviewer Extension",
-    version: "1.0.0",
+    version: "0.0.1",
 
     permissions: [
       "cookies",
