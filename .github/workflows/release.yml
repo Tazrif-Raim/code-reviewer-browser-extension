@@ -1,0 +1,60 @@
+name: Build and Release Extension
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*' # Triggers the Release step only on tags like v1.0.0, v0.1.2
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Extension (Chrome/Default)
+        run: npm run zip
+
+      - name: Build Extension (Edge)
+        run: npm run zip:edge
+
+      - name: Build Extension (Firefox)
+        run: npm run zip:firefox
+
+      - name: List Output Files
+        run: ls -R .output
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-builds
+          path: .output/*.zip
+          if-no-files-found: error
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            .output/*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
