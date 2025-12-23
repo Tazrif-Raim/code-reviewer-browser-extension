@@ -6,9 +6,33 @@ import {
   postReview,
   runGeminiAutomation,
 } from "@/lib/helpers";
+import { TReviewConfig } from "@/lib/types";
 
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(async (message, sender) => {
+    if (message.type === EMessageTypes.GET_REVIEW_RULES) {
+      try {
+        const response = await fetch(
+          "https://byok-ai-code-reviewer.vercel.app/api/extension/review-rules",
+          {
+            method: "GET",
+            credentials: "include",
+          }
+        );
+        if (response.ok) {
+          const data = await response.json();
+
+          await browser.runtime.sendMessage({
+            type: EMessageTypes.SET_REVIEW_RULES,
+            payload: data.reviewRules || [],
+          });
+        }
+      } catch (error) {
+        console.error("Failed to fetch review rules:", error);
+      }
+      return;
+    }
+
     if (message.type === EMessageTypes.TRIGGER_REVIEW) {
       const cookieHeader = await getCookieHeader(message, sender);
 
@@ -21,13 +45,27 @@ export default defineBackground(() => {
         return;
       }
 
-      const promptData = await buildPrompt(message, sender, repoId);
+      const config = ((await storage.getItem("local:reviewConfiguration")) ||
+        {}) as TReviewConfig;
+
+      const promptData = await buildPrompt(message, sender, repoId, config);
       if (!promptData?.prompt || !promptData?.reviewId) {
         return;
       }
 
-      const review = await runGeminiAutomation(promptData.prompt, sender);
+      const review = await runGeminiAutomation(
+        promptData.prompt,
+        sender,
+        config.geminiUrl
+      );
       if (!review) {
+        await browser.notifications.create({
+          type: "basic",
+          iconUrl: browser.runtime.getURL("/icon/48.png"),
+          title: "Gemini Review Failed",
+          message:
+            "An error occurred while generating the review via Gemini in the browser. Please try again." + review,
+        });
         return;
       }
 
@@ -36,10 +74,24 @@ export default defineBackground(() => {
       try {
         reviewData = JSON.parse(JSON.stringify(review));
       } catch (err) {
+        await browser.notifications.create({
+          type: "basic",
+          iconUrl: browser.runtime.getURL("/icon/48.png"),
+          title: "Gemini Review Failed",
+          message:
+            "An error occurred while generating the review via Gemini in the browser. Please try again.",
+        });
         return;
       }
 
       if (!reviewData) {
+        await browser.notifications.create({
+          type: "basic",
+          iconUrl: browser.runtime.getURL("/icon/48.png"),
+          title: "Gemini Review Failed",
+          message:
+            "An error occurred while generating the review via Gemini in the browser. Please try again.",
+        });
         return;
       }
 
@@ -48,7 +100,7 @@ export default defineBackground(() => {
         message.payload.prNumber,
         promptData.reviewId,
         reviewData,
-        false
+        config.shouldComment || false
       );
       if (!hasSuccess) {
         await browser.tabs.sendMessage(sender.tab!.id!, {

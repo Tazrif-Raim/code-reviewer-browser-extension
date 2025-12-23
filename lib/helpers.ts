@@ -86,7 +86,7 @@ export const getRepoId = async (
       iconUrl: browser.runtime.getURL("/icon/48.png"),
       title: "Could not Find Repository",
       message:
-        "Please Create the Repository in the Reviewer App to enable code review functionality.",
+        "Please Add the Repository in the Reviewer App to enable code review functionality.",
     });
     return "";
   }
@@ -95,7 +95,8 @@ export const getRepoId = async (
 export const buildPrompt = async (
   message: any,
   sender: Browser.runtime.MessageSender,
-  repoId: string
+  repoId: string,
+  config: any
 ): Promise<{ prompt: string; reviewId: string } | null> => {
   try {
     const response = await fetch(
@@ -110,9 +111,9 @@ export const buildPrompt = async (
           reviewParams: {
             repoId: repoId,
             githubPrNumber: parseInt(message.payload.prNumber),
-            reviewRuleIds: [],
-            customPrompt: "",
-            shouldComment: false,
+            reviewRuleIds: config.reviewRuleIds || [],
+            customPrompt: config.customPrompt || "",
+            shouldComment: config.shouldComment || false,
             aiModel: "external",
           },
         }),
@@ -141,9 +142,8 @@ export const buildPrompt = async (
     await browser.notifications.create({
       type: "basic",
       iconUrl: browser.runtime.getURL("/icon/48.png"),
-      title: "Could not Find Repository",
-      message:
-        "Please Create the Repository in the Reviewer App to enable code review functionality.",
+      title: "Something went wrong",
+      message: "An error occurred while reviewing. Please try again.",
     });
     return null;
   }
@@ -151,10 +151,11 @@ export const buildPrompt = async (
 
 export const runGeminiAutomation = async (
   userPrompt: string,
-  sender: Browser.runtime.MessageSender
+  sender: Browser.runtime.MessageSender,
+  geminiUrl: string = "https://gemini.google.com/app"
 ) => {
   const tab = await browser.tabs.create({
-    url: "https://gemini.google.com/u/7/app",
+    url: geminiUrl,
     active: true,
   });
 
@@ -171,125 +172,225 @@ export const runGeminiAutomation = async (
     target: { tabId: tab.id! },
     args: [userPrompt],
     func: async (prompt: string) => {
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      try {
+        const sleep = (ms: number) =>
+          new Promise((r) => setTimeout(r, ms + Math.random() * 300));
 
-      const waitFor = async (
-        selector: string,
-        timeout = 10000
-      ): Promise<Element> => {
-        const start = Date.now();
-        while (Date.now() - start < timeout) {
-          const el = document.querySelector(selector);
-          if (el) return el;
-          await sleep(500);
+        const waitFor = (
+          selector: string,
+          timeout = 10000
+        ): Promise<Element> => {
+          return new Promise((resolve, reject) => {
+            const el = document.querySelector(selector);
+            if (el) return resolve(el);
+
+            const observer = new MutationObserver(() => {
+              const el = document.querySelector(selector);
+              if (el) {
+                observer.disconnect();
+                resolve(el);
+              }
+            });
+
+            observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+            });
+
+            setTimeout(() => {
+              observer.disconnect();
+              reject(new Error(`Timeout waiting for selector: ${selector}`));
+            }, timeout);
+          });
+        };
+
+        const waitForResponseComplete = (timeout = 600000): Promise<void> => {
+          return new Promise((resolve, reject) => {
+            const checkCompletion = () => {
+              const stopIcon = document.querySelector(
+                '[data-mat-icon-name="stop"]'
+              );
+              const micIcon = document.querySelector(
+                '[data-mat-icon-name="mic"]'
+              );
+              const sendIcon = document.querySelector(
+                '[data-mat-icon-name="send"]'
+              );
+              return !stopIcon && (micIcon || sendIcon);
+            };
+
+            if (checkCompletion()) return resolve();
+
+            const observer = new MutationObserver(() => {
+              if (checkCompletion()) {
+                observer.disconnect();
+                resolve();
+              }
+            });
+
+            observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+            });
+
+            setTimeout(() => {
+              observer.disconnect();
+              reject(new Error("Timeout waiting for response generation"));
+            }, timeout);
+          });
+        };
+
+        const clickByIcon = async (iconName: string): Promise<Element> => {
+          const el = await waitFor(`[data-mat-icon-name="${iconName}"]`);
+          (el.closest("button") as HTMLButtonElement)?.click();
+          return el;
+        };
+
+        await sleep(2000);
+
+        try {
+          await clickByIcon("edit_square");
+          await sleep(800);
+        } catch {
+          // Ignore
         }
-        throw new Error(`Timeout waiting for selector: ${selector}`);
-      };
 
-      const clickByIcon = async (iconName: string): Promise<Element> => {
-        const el = await waitFor(`[data-mat-icon-name="${iconName}"]`);
-        (el.closest("button") as HTMLButtonElement)?.click();
-        return el;
-      };
-
-      await sleep(2000);
-
-      try {
-        await clickByIcon("edit_square");
+        const editor = (await waitFor(
+          '[contenteditable="true"]'
+        )) as HTMLElement;
+        editor.focus();
         await sleep(1000);
-      } catch {
-        // Ignore
-      }
 
-      try {
-        const menuBtn = await waitFor(
-          '[data-test-id="bard-mode-menu-button"]',
-          5000
-        );
-        (menuBtn.closest("button") as HTMLButtonElement)?.click();
+        try {
+          const menuBtn = await waitFor(
+            '[data-test-id="bard-mode-menu-button"], .input-area-switch',
+            2000
+          );
+          (menuBtn.closest("button") as HTMLButtonElement)?.click();
+          await sleep(500);
+
+          const menuItems = Array.from(
+            document.querySelectorAll(
+              'li, div[role="menuitem"], button[role="menuitemradio"]'
+            )
+          );
+          const targetModel = menuItems.find((el) =>
+            el.textContent?.includes(
+              "Thinks longer for advanced maths and code"
+            )
+          );
+          if (targetModel) {
+            (targetModel as HTMLElement).click();
+          } else {
+            document.body.click();
+          }
+          await sleep(800);
+        } catch {
+          // Ignore
+        }
+
+        editor.focus();
+        await sleep(300);
+
+        (editor as HTMLElement).innerText = prompt;
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
         await sleep(500);
 
-        const menuItems = Array.from(
-          document.querySelectorAll('li, div[role="menuitem"]')
+        await clickByIcon("send");
+        await sleep(2000);
+
+        await waitForResponseComplete();
+        await sleep(2000);
+
+        const codeBlocks = document.querySelectorAll(
+          'code[data-test-id="code-content"]'
         );
-        const targetModel = menuItems.find((el) =>
-          el.textContent?.includes("Thinking")
+        if (codeBlocks.length > 0) {
+          const lastCodeBlock = codeBlocks[codeBlocks.length - 1] as HTMLElement;
+          const codeText = lastCodeBlock.innerText?.trim();
+          if (codeText && codeText.length > 10) {
+            return codeText;
+          }
+        }
+
+        const codeBlockCopyBtns = document.querySelectorAll(
+          ".code-block .copy-button, .code-block button[aria-label='Copy code']"
         );
-        if (targetModel) {
-          (targetModel as HTMLElement).click();
-        } else {
-          console.warn("Could not find 'Thinking' model, using default.");
-          document.body.click();
-        }
-        await sleep(1000);
-      } catch {
-        console.warn("Could not open model menu, using default model.");
-      }
+        if (codeBlockCopyBtns.length > 0) {
+          const lastBtn = codeBlockCopyBtns[
+            codeBlockCopyBtns.length - 1
+          ] as HTMLButtonElement;
+          lastBtn.click();
+          await sleep(800);
 
-      const editor = (await waitFor('[contenteditable="true"]')) as HTMLElement;
-      editor.focus();
-      document.execCommand("insertText", false, prompt);
-      await sleep(500);
-
-      await clickByIcon("send");
-      await sleep(2000);
-
-      const pollStart = Date.now();
-      const TIMEOUT = 180000;
-      while (true) {
-        if (Date.now() - pollStart > TIMEOUT) {
-          throw new Error("Timeout waiting for response generation");
+          try {
+            const clipboardText = await navigator.clipboard.readText();
+            if (clipboardText && clipboardText.length > 10) {
+              return clipboardText;
+            }
+          } catch {
+            // Ignore
+          }
         }
 
-        const stopIcon = document.querySelector('[data-mat-icon-name="stop"]');
-        const micIcon = document.querySelector('[data-mat-icon-name="mic"]');
-        const sendIcon = document.querySelector('[data-mat-icon-name="send"]');
-
-        if (!stopIcon && (micIcon || sendIcon)) {
-          break;
-        }
-        await sleep(1000);
-      }
-
-      await sleep(1000);
-
-      const copyButtons = document.querySelectorAll(
-        '[data-mat-icon-name="content_copy"]'
-      );
-      if (copyButtons.length === 0) {
-        throw new Error("No copy button found");
-      }
-
-      const lastCopyBtn = copyButtons[copyButtons.length - 1];
-      (lastCopyBtn.closest("button") as HTMLButtonElement)?.click();
-      await sleep(500);
-
-      try {
-        const text = await navigator.clipboard.readText();
-        return text;
-      } catch {
-        const responseContainers = document.querySelectorAll(
-          ".model-response-text, .response-content, [data-message-author-role='model']"
+        const copyButtons = document.querySelectorAll(
+          '[data-mat-icon-name="content_copy"]'
         );
-        if (responseContainers.length > 0) {
-          const lastResponse =
-            responseContainers[responseContainers.length - 1];
-          return (lastResponse as HTMLElement).innerText;
+        if (copyButtons.length > 0) {
+          const lastCopyBtn = copyButtons[copyButtons.length - 1];
+          (lastCopyBtn.closest("button") as HTMLButtonElement)?.click();
+          await sleep(800);
+
+          try {
+            const clipboardText = await navigator.clipboard.readText();
+            if (clipboardText && clipboardText.length > 10) {
+              return clipboardText;
+            }
+          } catch {
+            // Ignore
+          }
         }
-        return "Error: Could not read clipboard or scrape response from DOM";
+
+        const responseSelectors = [
+          ".model-response-text .markdown p",
+          ".model-response-text .markdown",
+          "message-content .markdown p",
+          "message-content .markdown",
+          '[id^="model-response-message-content"]',
+          ".markdown-main-panel p",
+          ".markdown-main-panel",
+        ];
+
+        for (const selector of responseSelectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            const lastElement = elements[elements.length - 1] as HTMLElement;
+            const text = lastElement.innerText?.trim();
+            if (text && text.length > 10) {
+              return text;
+            }
+          }
+        }
+
+        return "ERROR: Could not extract response from Gemini";
+      } catch (err) {
+        return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
       }
     },
   });
 
   if (tab.id) {
-    await browser.tabs.remove(tab.id);
+    setTimeout(() => {
+      browser.tabs.remove(tab.id!);
+    }, 500);
   }
 
   if (sender.tab?.id) {
     await browser.tabs.update(sender.tab.id, { active: true });
   }
 
-  return result[0].result;
+  return result?.[0]?.result ?? null;
 };
 
 export const postReview = async (
@@ -325,7 +426,12 @@ export const postReview = async (
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error("Error posting review:", error);
+    await browser.notifications.create({
+      type: "basic",
+      iconUrl: browser.runtime.getURL("/icon/48.png"),
+      title: "Could not Save Review",
+      message: "An error occurred while saving the review. Please try again.",
+    });
     return false;
   }
 };

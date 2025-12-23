@@ -1,15 +1,12 @@
-import { Button } from "@/components/ui/button";
+import { Header } from "@/components/Header";
+import { ReviewConfigure } from "@/components/ReviewConfigure";
 
 function App() {
-  function goToReviwerApp() {
-    const reviewerAppUrl = "https://byok-ai-code-reviewer.vercel.app";
-    window.open(reviewerAppUrl, "_blank");
-  }
-
   return (
     <>
-      <div className="grid place-items-center h-36 w-96">
-        <Button onClick={goToReviwerApp}>Go to Reviewer App</Button>
+      <div className="w-96 bg-background border-2 border-border">
+        <Header />
+        <ReviewConfigure />
       </div>
     </>
   );

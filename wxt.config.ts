@@ -18,6 +18,7 @@ export default defineConfig({
       "activeTab",
       "notifications",
       "clipboardRead",
+      "storage",
     ],
     host_permissions: ["http://*/*", "https://*/*"],
 
