@@ -24,7 +24,6 @@ export function useReviewConfigurationForm({ isOpenConfigure, setIsOpenConfigure
   }, [form]);
 
   const onSubmit = async (data: z.infer<typeof reviewConfigurationSchema>) => {
-    console.log("Review Configuration Submitted:", data);
     await storage.setItem("local:reviewConfiguration", data);
     setIsOpenConfigure(false);
   };

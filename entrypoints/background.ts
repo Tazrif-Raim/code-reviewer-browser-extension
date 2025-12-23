@@ -11,7 +11,6 @@ import { TReviewConfig } from "@/lib/types";
 export default defineBackground(() => {
   browser.runtime.onMessage.addListener(async (message, sender) => {
     if (message.type === EMessageTypes.GET_REVIEW_RULES) {
-      console.log("Received GET_REVIEW_RULES message");
       try {
         const response = await fetch(
           "https://byok-ai-code-reviewer.vercel.app/api/extension/review-rules",
@@ -22,7 +21,6 @@ export default defineBackground(() => {
         );
         if (response.ok) {
           const data = await response.json();
-          console.log("Fetched review rules:", data);
 
           await browser.runtime.sendMessage({
             type: EMessageTypes.SET_REVIEW_RULES,
