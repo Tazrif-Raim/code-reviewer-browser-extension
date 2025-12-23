@@ -61,6 +61,13 @@ export default defineBackground(() => {
         config.geminiUrl
       );
       if (!review) {
+        await browser.notifications.create({
+          type: "basic",
+          iconUrl: browser.runtime.getURL("/icon/48.png"),
+          title: "Gemini Review Failed",
+          message:
+            "An error occurred while generating the review via Gemini in the browser. Please try again." + review,
+        });
         return;
       }
 
@@ -69,6 +76,13 @@ export default defineBackground(() => {
       try {
         reviewData = JSON.parse(JSON.stringify(review));
       } catch (err) {
+        await browser.notifications.create({
+          type: "basic",
+          iconUrl: browser.runtime.getURL("/icon/48.png"),
+          title: "Gemini Review Failed",
+          message:
+            "An error occurred while generating the review via Gemini in the browser. Please try again.",
+        });
         return;
       }
 
