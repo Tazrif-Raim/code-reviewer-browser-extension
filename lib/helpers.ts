@@ -86,7 +86,7 @@ export const getRepoId = async (
       iconUrl: browser.runtime.getURL("/icon/48.png"),
       title: "Could not Find Repository",
       message:
-        "Please Create the Repository in the Reviewer App to enable code review functionality.",
+        "Please Add the Repository in the Reviewer App to enable code review functionality.",
     });
     return "";
   }
@@ -95,7 +95,8 @@ export const getRepoId = async (
 export const buildPrompt = async (
   message: any,
   sender: Browser.runtime.MessageSender,
-  repoId: string
+  repoId: string,
+  config: any
 ): Promise<{ prompt: string; reviewId: string } | null> => {
   try {
     const response = await fetch(
@@ -110,9 +111,9 @@ export const buildPrompt = async (
           reviewParams: {
             repoId: repoId,
             githubPrNumber: parseInt(message.payload.prNumber),
-            reviewRuleIds: [],
-            customPrompt: "",
-            shouldComment: false,
+            reviewRuleIds: config.reviewRuleIds || [],
+            customPrompt: config.customPrompt || "",
+            shouldComment: config.shouldComment || false,
             aiModel: "external",
           },
         }),
@@ -141,9 +142,8 @@ export const buildPrompt = async (
     await browser.notifications.create({
       type: "basic",
       iconUrl: browser.runtime.getURL("/icon/48.png"),
-      title: "Could not Find Repository",
-      message:
-        "Please Create the Repository in the Reviewer App to enable code review functionality.",
+      title: "Something went wrong",
+      message: "An error occurred while reviewing. Please try again.",
     });
     return null;
   }
@@ -151,10 +151,11 @@ export const buildPrompt = async (
 
 export const runGeminiAutomation = async (
   userPrompt: string,
-  sender: Browser.runtime.MessageSender
+  sender: Browser.runtime.MessageSender,
+  geminiUrl: string = "https://gemini.google.com/app"
 ) => {
   const tab = await browser.tabs.create({
-    url: "https://gemini.google.com/u/7/app",
+    url: geminiUrl,
     active: true,
   });
 
@@ -213,12 +214,12 @@ export const runGeminiAutomation = async (
           document.querySelectorAll('li, div[role="menuitem"]')
         );
         const targetModel = menuItems.find((el) =>
-          el.textContent?.includes("Thinking")
+          el.textContent?.includes("Thinks longer for advanced maths and code")
         );
         if (targetModel) {
           (targetModel as HTMLElement).click();
         } else {
-          console.warn("Could not find 'Thinking' model, using default.");
+          console.warn("Could not find 'Pro' model, using default.");
           document.body.click();
         }
         await sleep(1000);
@@ -276,7 +277,7 @@ export const runGeminiAutomation = async (
             responseContainers[responseContainers.length - 1];
           return (lastResponse as HTMLElement).innerText;
         }
-        return "Error: Could not read clipboard or scrape response from DOM";
+        return "";
       }
     },
   });
@@ -325,7 +326,12 @@ export const postReview = async (
     const data = await response.json();
     return data.success;
   } catch (error) {
-    console.error("Error posting review:", error);
+    await browser.notifications.create({
+      type: "basic",
+      iconUrl: browser.runtime.getURL("/icon/48.png"),
+      title: "Could not Save Review",
+      message: "An error occurred while saving the review. Please try again.",
+    });
     return false;
   }
 };
