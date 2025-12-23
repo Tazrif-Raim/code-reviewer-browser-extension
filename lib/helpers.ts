@@ -287,7 +287,7 @@ export const runGeminiAutomation = async (
           }
           await sleep(800);
         } catch {
-          // Ignore model menu errors
+          // Ignore
         }
 
         editor.focus();
@@ -303,7 +303,37 @@ export const runGeminiAutomation = async (
         await waitForResponseComplete();
         await sleep(2000);
 
-        // PRIMARY: Use copy button - this is most reliable
+        const codeBlocks = document.querySelectorAll(
+          'code[data-test-id="code-content"]'
+        );
+        if (codeBlocks.length > 0) {
+          const lastCodeBlock = codeBlocks[codeBlocks.length - 1] as HTMLElement;
+          const codeText = lastCodeBlock.innerText?.trim();
+          if (codeText && codeText.length > 10) {
+            return codeText;
+          }
+        }
+
+        const codeBlockCopyBtns = document.querySelectorAll(
+          ".code-block .copy-button, .code-block button[aria-label='Copy code']"
+        );
+        if (codeBlockCopyBtns.length > 0) {
+          const lastBtn = codeBlockCopyBtns[
+            codeBlockCopyBtns.length - 1
+          ] as HTMLButtonElement;
+          lastBtn.click();
+          await sleep(800);
+
+          try {
+            const clipboardText = await navigator.clipboard.readText();
+            if (clipboardText && clipboardText.length > 10) {
+              return clipboardText;
+            }
+          } catch {
+            // Ignore
+          }
+        }
+
         const copyButtons = document.querySelectorAll(
           '[data-mat-icon-name="content_copy"]'
         );
@@ -318,11 +348,10 @@ export const runGeminiAutomation = async (
               return clipboardText;
             }
           } catch {
-            // Clipboard failed, try DOM extraction
+            // Ignore
           }
         }
 
-        // FALLBACK: Try DOM extraction with multiple selectors
         const responseSelectors = [
           ".model-response-text .markdown p",
           ".model-response-text .markdown",
